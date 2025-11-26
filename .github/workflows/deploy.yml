@@ -25,6 +25,7 @@ jobs:
 
       - name: Zip Dist Folder
         run: |
+          rm -f extension.zip
           cd dist
           zip -r ../extension.zip .
 
