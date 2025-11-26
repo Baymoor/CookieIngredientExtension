@@ -5,7 +5,8 @@
     "rootDir": "src",
     "outDir": "dist",
     "sourceMap": false,
-    "allowImportingTsExtensions": false
+    "allowImportingTsExtensions": false,
+    "moduleDetection": "auto"
   },
   "include": [
     "src/background/background.ts",
