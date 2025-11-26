@@ -24,7 +24,9 @@ jobs:
         run: npm run build
 
       - name: Zip Dist Folder
-        run: cd dist && zip -r ../extension.zip *
+        run: |
+          cd dist
+          zip -r ../extension.zip .
 
       - name: Upload to Chrome Web Store
         uses: mobilefirstllc/cws-publish@latest
