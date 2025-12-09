@@ -23,4 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
+# Misc
 /extension.zip
+tsc_output.txt

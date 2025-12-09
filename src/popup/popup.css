@@ -207,15 +207,37 @@ main { flex: 1; position: relative; overflow-y: auto; }
 
 /* Buttons */
 .chocolate-btn {
-    width: 100%; padding: 14px; border: none; border-radius: 12px;
-    font-size: 1rem; font-weight: 600; cursor: pointer;
-    background: linear-gradient(135deg, #ffffff 0%, var(--primary-chocolate) 100%);
-    color: #4a2500;
-    box-shadow: var(--shadow-md); transition: all 0.2s;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    background-color: var(--primary-chocolate);
+    color: #ffffff; /* White text for better contrast */
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
-.chocolate-btn:hover { transform: scale(1.02); box-shadow: 0 6px 16px rgba(210, 105, 30, 0.25); }
-.chocolate-btn:active { transform: scale(0.98); }
-.chocolate-btn:disabled { opacity: 0.6; cursor: not-allowed; filter: grayscale(1); }
+
+.chocolate-btn:hover {
+    background-color: #e07a2e; /* Slightly lighter on hover */
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.chocolate-btn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.chocolate-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background-color: var(--text-muted);
+    transform: none;
+    box-shadow: none;
+}
 
 /* List Toggle */
 .list-toggle-btn {
@@ -282,3 +304,31 @@ body.dark .badge-unknown { background: rgba(255,255,255, 0.05); }
     font-size: 0.8rem; opacity: 1; transition: opacity 0.3s; z-index: 100;
 }
 .toast.hidden { opacity: 0; pointer-events: none; display: block !important; }
+
+/* Modern Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent; 
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+/* Dark Mode Scrollbar */
+body.dark ::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
