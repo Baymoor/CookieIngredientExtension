@@ -5,8 +5,8 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Increases the warning limit to 1000kb (1MB) to account for the Cookie Database
-    chunkSizeWarningLimit: 1000,
+    // Increases the warning limit to 5000kb (5MB) to account for the Cookie Database
+    chunkSizeWarningLimit: 5000,
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
