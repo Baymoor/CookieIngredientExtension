@@ -9,7 +9,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 5000,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, "index.html"),
         popup: resolve(__dirname, "src/popup/popup.html"),
         content: resolve(__dirname, "src/content/content.ts"),
       },
