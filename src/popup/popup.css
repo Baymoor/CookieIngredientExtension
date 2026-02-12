@@ -259,6 +259,10 @@ main { flex: 1; position: relative; overflow-y: auto; }
 }
 .cookie-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-weight: 600; }
 .cookie-desc { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
+.truncate {
+    max-width: 60%;
+    
+}
 
 /* Badges */
 .cookie-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
@@ -331,4 +335,10 @@ body.dark ::-webkit-scrollbar-thumb {
 
 body.dark ::-webkit-scrollbar-thumb:hover {
     background-color: rgba(255, 255, 255, 0.2);
+}
+
+.cannot-scan-cookies {
+    text-align:center; 
+    padding: 40px; 
+    color: var(--text-muted);
 }

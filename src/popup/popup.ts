@@ -385,9 +385,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Fetch cookies
         const cookies = await chrome.cookies.getAll({ url: tab.url });
 
-        let counts = { func: 0, perf: 0, target: 0, strict: 0 };
+        let counts = { 
+          func: 0, 
+          perf: 0, 
+          target: 0, 
+          strict: 0 
+        };
 
-        if (cookieListContainer) cookieListContainer.innerHTML = "";
+        if (cookieListContainer) {
+            cookieListContainer.textContent = "";
+        }
 
         cookies.forEach((cookie: chrome.cookies.Cookie) => {
           // PASS CURRENT HOSTNAME HERE
@@ -408,17 +415,27 @@ document.addEventListener("DOMContentLoaded", async () => {
 
           // Create List Item
           if (cookieListContainer) {
-            const item = document.createElement("div");
-            item.className = "cookie-item";
+            const cookieItem = document.createElement("div");
+            cookieItem.className = "cookie-item";
+            const cookieHead = document.createElement("div")
+            cookieHead.className = "cookie-head";
+            const cookieSpanText = document.createElement("span");
+            cookieSpanText.className = "truncate";
+            const cookieSpanBadge = document.createElement("span");
+            cookieSpanBadge.className = `cookie-badge ${badgeClass}`;
+            const cookieDesc = document.createElement("div");
+            cookieDesc.className = "cookie-desc";
 
-            item.innerHTML = `
-                <div class="cookie-head">
-                    <span class="truncate" style="max-width: 60%;" title="${cookie.name}">${cookie.name}</span>
-                    <span class="cookie-badge ${badgeClass}">${info.category}</span>
-                </div>
-                <div class="cookie-desc">${info.description}</div>
-            `;
-            cookieListContainer.appendChild(item);
+            cookieSpanText.textContent = cookie.name;
+            cookieSpanText.title = cookie.name;
+            cookieSpanBadge.textContent = info.category;
+            cookieDesc.textContent = info.description;
+
+            cookieListContainer.appendChild(cookieItem);
+            cookieItem.append(cookieHead);
+            cookieItem.append(cookieDesc);
+            cookieHead.append(cookieSpanText);
+            cookieHead.append(cookieSpanBadge);
           }
         });
 
@@ -442,7 +459,11 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (currentSiteEl) currentSiteEl.textContent = "Restricted Page";
         if (dashboardView) {
           dashboardView.classList.remove("hidden");
-          dashboardView.innerHTML = `<div style="text-align:center; padding: 40px; color: var(--text-muted);">Cannot scan cookies on this page.</div>`;
+          const dashBoardViewDiv = document.createElement("div");
+          dashBoardViewDiv.className = "cannot-scan-cookies";
+          dashBoardViewDiv.textContent = "Cannot scan cookies on this page.";
+          dashboardView.replaceChildren();
+          dashboardView.appendChild(dashBoardViewDiv);
         }
       }
     } catch (e) {
@@ -475,7 +496,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (countTargetingEl) countTargetingEl.textContent = "0";
         if (countStrictlyNecessaryEl)
           countStrictlyNecessaryEl.textContent = "0";
-        if (cookieListContainer) cookieListContainer.innerHTML = "";
+        if (cookieListContainer) cookieListContainer.replaceChildren();
 
         // Show toast
         if (toast) {
