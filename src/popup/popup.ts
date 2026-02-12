@@ -1,27 +1,13 @@
 /// <reference types="chrome" />
 import "./popup.css";
 import cookieData from "../cookie_lookup/cookies.json";
+import type {CookieCategory, CookieIdentification, ExternalCookie, ExternalCookieDB} from "./cookietypes";
+import { CookieCategories } from "./cookietypes";
 
-// --- Interfaces for the Open Cookie Database ---
-interface ExternalCookie {
-  id: string;
-  category: string;
-  cookie: string; // This matches cookie.name
-  domain: string;
-  description: string;
-  retentionPeriod: string;
-  dataController: string;
-  privacyLink: string;
-  wildcardMatch: string; // "0" for exact, "1" for pattern
-}
 
-interface ExternalCookieDB {
-  [vendorName: string]: ExternalCookie[];
-}
 
 // Type assertion for the imported JSON
-const RAW_COOKIE_DB: ExternalCookieDB =
-  cookieData as unknown as ExternalCookieDB;
+const RAW_COOKIE_DB: ExternalCookieDB = cookieData as unknown as ExternalCookieDB;
 
 // --- Optimization: Pre-process DB into a Map ---
 const EXACT_MATCH_MAP = new Map<
@@ -37,7 +23,7 @@ const PATTERN_MATCH_LIST: {
 }[] = [];
 
 // Helper: Map OpenCookieDB Categories to Our Extension Categories
-function normalizeCategory(dbCategory: string): string {
+function normalizeCategory(dbCategory: string): CookieCategory {
   const cat = dbCategory.toLowerCase();
 
   if (
@@ -45,19 +31,19 @@ function normalizeCategory(dbCategory: string): string {
     cat === "security" ||
     cat === "strictly necessary"
   ) {
-    return "Strictly Necessary";
+    return CookieCategories.Strictly_Necessary;
   }
   if (cat === "personalization" || cat === "preferences") {
-    return "Functional";
+    return CookieCategories.Functional;
   }
   if (cat === "analytics" || cat === "performance" || cat === "statistics") {
-    return "Performance";
+    return CookieCategories.Performance;
   }
   if (cat === "marketing" || cat === "advertising" || cat === "targeting") {
-    return "Targeting";
+    return CookieCategories.Targeting;
   }
 
-  return "Functional"; // Default fallback
+  return CookieCategories.Functional; // Default fallback
 }
 
 // Initialize Lookup Tables (Runs once on load)
@@ -142,7 +128,7 @@ function identifyCookie(
   // --- LEVEL 1: Security Flags (Strongest Signals) ---
   if (isHttpOnly) {
     return {
-      category: "Strictly Necessary",
+      category: CookieCategories.Strictly_Necessary,
       vendor: "Unknown (Backend)",
       description: "This cookie is flagged as 'HttpOnly', meaning it's used securely by the server (likely for login or security) and can't be touched by trackers.", 
       retention: isSession ? "Session" : "Persistent",
@@ -159,7 +145,7 @@ function identifyCookie(
     !cleanCookieDomain.includes(cleanCurrentHost)
   ) {
     return {
-      category: "Targeting",
+      category: CookieCategories.Targeting,
       vendor: "Third Party (" + cleanCookieDomain + ")",
       description: `This cookie comes from a different domain (${cleanCookieDomain}). Third-party cookies are typically used to track you across different websites.`,
       retention: lifespan > oneYear ? "Long-term" : "Medium-term",
@@ -175,7 +161,7 @@ function identifyCookie(
     cookieNameLower.includes("auth")
   ) {
     return {
-      category: "Strictly Necessary",
+      category: CookieCategories.Strictly_Necessary,
       vendor: "Heuristic Match",
       description:
         "The name suggests this is a security token or session ID, essential for keeping you logged in.",
@@ -190,7 +176,7 @@ function identifyCookie(
     cookieNameLower.includes("tracker")
   ) {
     return {
-      category: "Performance",
+      category: CookieCategories.Performance,
       vendor: "Heuristic Match",
       description:
         "The name contains common tracking terms. It is likely measuring your interactions with the page.",
@@ -205,7 +191,7 @@ function identifyCookie(
     cookieNameLower.includes("mode")
   ) {
     return {
-      category: "Functional",
+      category: CookieCategories.Functional,
       vendor: "Heuristic Match",
       description:
         "The name implies it's remembering a choice you made, like language or dark mode.",
@@ -216,7 +202,7 @@ function identifyCookie(
   // --- LEVEL 4: Time-Based Fallback ---
   if (isSession) {
     return {
-      category: "Strictly Necessary",
+      category: CookieCategories.Strictly_Necessary,
       vendor: "Unknown",
       description:
         "This is a temporary session cookie. It usually holds your 'state' while you browse and is deleted when you close the browser.",
@@ -226,7 +212,7 @@ function identifyCookie(
 
   if (lifespan < oneDay) {
     return {
-      category: "Performance",
+      category: CookieCategories.Performance,
       vendor: "Unknown",
       description:
         "This cookie expires very quickly (under 24h). Short-lived cookies are often used for brief analytics or checking if your browser supports cookies.",
@@ -236,7 +222,7 @@ function identifyCookie(
 
   if (lifespan > oneYear) {
     return {
-      category: "Targeting",
+      category: CookieCategories.Targeting,
       vendor: "Unknown",
       description:
         "This cookie lasts over a year. Long lifespans are a hallmark of tracking cookies building a long-term profile of you.",
@@ -245,7 +231,7 @@ function identifyCookie(
   }
 
   return {
-    category: "Functional",
+    category: CookieCategories.Functional,
     vendor: "Unknown",
     description:
       "This persistent cookie doesn't match known tracking patterns. It's likely remembering your preferences or site state.",
@@ -400,17 +386,17 @@ document.addEventListener("DOMContentLoaded", async () => {
           // PASS CURRENT HOSTNAME HERE
           const info = identifyCookie(cookie, currentHostname);
 
-          if (info.category === "Functional") counts.func++;
-          else if (info.category === "Performance") counts.perf++;
-          else if (info.category === "Targeting") counts.target++;
-          else if (info.category === "Strictly Necessary") counts.strict++;
+          if (info.category === CookieCategories.Functional) counts.func++;
+          else if (info.category === CookieCategories.Performance) counts.perf++;
+          else if (info.category === CookieCategories.Targeting) counts.target++;
+          else if (info.category === CookieCategories.Strictly_Necessary) counts.strict++;
 
           // Determine Badge Class based on category
           let badgeClass = "badge-unknown";
-          if (info.category === "Functional") badgeClass = "badge-func";
-          else if (info.category === "Performance") badgeClass = "badge-perf";
-          else if (info.category === "Targeting") badgeClass = "badge-target";
-          else if (info.category === "Strictly Necessary")
+          if (info.category === CookieCategories.Functional) badgeClass = "badge-func";
+          else if (info.category === CookieCategories.Performance) badgeClass = "badge-perf";
+          else if (info.category === CookieCategories.Targeting) badgeClass = "badge-target";
+          else if (info.category === CookieCategories.Strictly_Necessary)
             badgeClass = "badge-strict";
 
           // Create List Item
