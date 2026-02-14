@@ -114,10 +114,18 @@
                     <span>Review Ingredients</span>
                     <svg id="icon-list" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
-                <div id="list-wrap" class="list-container hidden">
+                    <div id="list-wrap" class="list-container hidden">
+                    <div class="filter-buttons">
+                        <button class="filter-btn" data-filter="all">All</button>
+                        <button class="filter-btn badge-func" data-filter="Functional">Functional</button>
+                        <button class="filter-btn badge-perf" data-filter="Performance">Performance</button>
+                        <button class="filter-btn badge-target" data-filter="Targeting">Targeting</button>
+                        <button class="filter-btn badge-strict" data-filter="Strictly Necessary">Necessary</button>
+                    </div>
                     <div id="list-items" class="cookie-list">
-                        </div>
+                    </div>
                 </div>
+
             </div>
 
             <div class="footer-actions">

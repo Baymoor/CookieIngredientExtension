@@ -59,6 +59,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 3. Ingredients Toggle
   showIngredientList(showIngredientsBtn, listContainer, showIngredientsIcon);
 
+
   // Helper: Update Protect UI
   function updateProtectUI() {
     if (isProtected) {
@@ -139,6 +140,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Create List Item
         const cookieItem = document.createElement("div");
         cookieItem.className = "cookie-item";
+        cookieItem.dataset.category = info.category;
         const cookieHead = document.createElement("div");
         cookieHead.className = "cookie-head";
         const cookieSpanText = document.createElement("span");
@@ -166,6 +168,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       countPerformanceEl.textContent = String(counts.perf);
       countTargetingEl.textContent = String(counts.target);
       countStrictlyNecessaryEl.textContent = String(counts.strict);
+
+
+      //Filter btns
+      const allFilterBtns = document.querySelectorAll(".filter-btn");
+      allFilterBtns.forEach( (btn) => {
+        btn.addEventListener("click", () => {
+          const filter = (btn as HTMLElement).dataset.filter; 
+          const items = cookieListContainer.querySelectorAll(".cookie-item");
+
+          items.forEach((item) => {
+            const itemCategory = (item as HTMLElement).dataset.category;
+           if (filter === "all" || itemCategory === filter) {
+            (item as HTMLElement).classList.remove("hidden");
+          } else {
+            (item as HTMLElement).classList.add("hidden");
+          }   
+          })
+        });
+      })
 
       // Show dashboard
       scanningView.classList.add("hidden");
