@@ -1,5 +1,5 @@
 // --- Interfaces for the Open Cookie Database ---
-export interface ExternalCookie {
+interface ExternalCookie {
   id: string;
   category: string;
   cookie: string; // This matches cookie.name

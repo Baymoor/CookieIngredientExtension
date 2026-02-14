@@ -1,18 +1,14 @@
 /// <reference types="chrome" />
 import { EXACT_MATCH_MAP, PATTERN_MATCH_LIST } from "./cookieDatabase";
 import { CookieCategories } from "./cookietypes";
+import type { CookieIdentification } from "./cookietypes";
 
 // --- Logic ---
 
 export function identifyCookie(
   cookie: chrome.cookies.Cookie,
   currentHostname: string,
-): {
-  category: string;
-  vendor: string;
-  description: string;
-  retention: string;
-} {
+): CookieIdentification {
   const cookieNameLower = cookie.name.toLowerCase();
 
   // 1. FAST LOOKUP: Check the Map (O(1) speed)

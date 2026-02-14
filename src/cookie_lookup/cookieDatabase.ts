@@ -1,10 +1,5 @@
 import cookieData from "./cookies.json";
-import type {
-  CookieCategory,
-  CookieIdentification,
-  ExternalCookie,
-  ExternalCookieDB,
-} from "./cookietypes";
+import type { CookieCategory, ExternalCookieDB, } from "./cookietypes";
 import { CookieCategories } from "./cookietypes";
 
 // Type assertion for the imported JSON
