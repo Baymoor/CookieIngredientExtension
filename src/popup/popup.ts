@@ -3,6 +3,7 @@ import "./popup.css";
 import cookieData from "../cookie_lookup/cookies.json";
 import type {CookieCategory, CookieIdentification, ExternalCookie, ExternalCookieDB} from "./cookietypes";
 import { CookieCategories } from "./cookietypes";
+import { getElement } from "./helper";
 
 
 
@@ -242,34 +243,34 @@ function identifyCookie(
 // --- UI Logic ---
 document.addEventListener("DOMContentLoaded", async () => {
   // UI Elements
-  const themeBtn = document.getElementById("btn-theme");
-  const sunIcon = themeBtn?.querySelector(".icon-sun");
-  const moonIcon = themeBtn?.querySelector(".icon-moon");
+  const themeBtn = getElement<HTMLButtonElement>("btn-theme");
+  const sunIcon = themeBtn.querySelector(".icon-sun");
+  const moonIcon = themeBtn.querySelector(".icon-moon");
 
-  const settingsBtn = document.getElementById("btn-settings");
-  const backBtn = document.getElementById("btn-back");
-  const settingsView = document.getElementById("view-opts");
+  const settingsBtn = getElement<HTMLButtonElement>("btn-settings");
+  const backBtn = getElement<HTMLButtonElement>("btn-back");
+  const settingsView = getElement<HTMLElement>("view-opts");
 
-  const clearBtn = document.getElementById("btn-clear-all");
-  const toast = document.getElementById("toast");
-  const scanningView = document.getElementById("view-scan");
-  const dashboardView = document.getElementById("view-dash");
-  const currentSiteEl = document.getElementById("site-host");
+  const clearBtn = getElement<HTMLButtonElement>("btn-clear-all");
+  const toast = getElement<HTMLElement>("toast");
+  const scanningView = getElement<HTMLElement>("view-scan");
+  const dashboardView = getElement<HTMLElement>("view-dash");
+  const currentSiteEl = getElement<HTMLElement>("site-host");
 
-  const totalCountEl = document.getElementById("count-total");
-  const countFunctionalEl = document.getElementById("count-func");
-  const countPerformanceEl = document.getElementById("count-perf");
-  const countTargetingEl = document.getElementById("count-target");
-  const countStrictlyNecessaryEl = document.getElementById("count-strict");
+  const totalCountEl = getElement<HTMLElement>("count-total");
+  const countFunctionalEl = getElement<HTMLElement>("count-func");
+  const countPerformanceEl = getElement<HTMLElement>("count-perf");
+  const countTargetingEl = getElement<HTMLElement>("count-target");
+  const countStrictlyNecessaryEl = getElement<HTMLElement>("count-strict");
 
-  const showIngredientsBtn = document.getElementById("btn-list");
-  const listContainer = document.getElementById("list-wrap");
-  const cookieListContainer = document.getElementById("list-items");
-  const showIngredientsIcon = document.getElementById("icon-list");
+  const showIngredientsBtn = getElement<HTMLButtonElement>("btn-list");
+  const listContainer = getElement<HTMLElement>("list-wrap");
+  const cookieListContainer = getElement<HTMLElement>("list-items");
+  const showIngredientsIcon = getElement<HTMLElement>("icon-list");
 
-  const protectBtn = document.getElementById("btn-lock");
-  const protectIconUnlocked = document.getElementById("icon-unlock");
-  const protectIconLocked = document.getElementById("icon-lock");
+  const protectBtn = getElement<HTMLButtonElement>("btn-lock");
+  const protectIconUnlocked = getElement<HTMLElement>("icon-unlock");
+  const protectIconLocked = getElement<HTMLElement>("icon-lock");
 
   // Flash Card Elements
   const cards = document.querySelectorAll(".flip-card");
@@ -283,7 +284,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   let currentHostname = "";
 
   // 1. Theme Toggle
-  themeBtn?.addEventListener("click", () => {
+  themeBtn.addEventListener("click", () => {
     document.body.classList.toggle("dark");
     const isDark = document.body.classList.contains("dark");
     if (isDark) {
@@ -296,54 +297,51 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // 2. Settings Navigation
-  settingsBtn?.addEventListener("click", () => {
-    settingsView?.classList.remove("hidden");
+  settingsBtn.addEventListener("click", () => {
+    settingsView.classList.remove("hidden");
   });
-  backBtn?.addEventListener("click", () => {
-    settingsView?.classList.add("hidden");
+  backBtn.addEventListener("click", () => {
+    settingsView.classList.add("hidden");
   });
 
   // 3. Ingredients Toggle
-  showIngredientsBtn?.addEventListener("click", () => {
-    const isHidden = listContainer?.classList.contains("hidden");
+  showIngredientsBtn.addEventListener("click", () => {
+    const isHidden = listContainer.classList.contains("hidden");
     if (isHidden) {
-      listContainer?.classList.remove("hidden");
-      showIngredientsIcon?.classList.add("rotate-180");
+      listContainer.classList.remove("hidden");
+      showIngredientsIcon.classList.add("rotate-180");
       setTimeout(
-        () => listContainer?.scrollIntoView({ behavior: "smooth" }),
+        () => listContainer.scrollIntoView({ behavior: "smooth" }),
         100
       );
     } else {
-      listContainer?.classList.add("hidden");
-      showIngredientsIcon?.classList.remove("rotate-180");
+      listContainer.classList.add("hidden");
+      showIngredientsIcon.classList.remove("rotate-180");
     }
   });
 
   // Helper: Update Protect UI
   function updateProtectUI() {
     if (isProtected) {
-      protectIconUnlocked?.classList.add("hidden");
-      protectIconLocked?.classList.remove("hidden");
-      protectBtn?.classList.add("locked");
-      if (clearBtn) {
-        clearBtn.setAttribute("disabled", "true");
-        clearBtn.title = "Site is protected";
-        clearBtn.textContent = "Cookies Protected";
-      }
+      protectIconUnlocked.classList.add("hidden");
+      protectIconLocked.classList.remove("hidden");
+      protectBtn.classList.add("locked");
+      clearBtn.setAttribute("disabled", "true");
+      clearBtn.title = "Site is protected";
+      clearBtn.textContent = "Cookies Protected";
+      
     } else {
-      protectIconUnlocked?.classList.remove("hidden");
-      protectIconLocked?.classList.add("hidden");
-      protectBtn?.classList.remove("locked");
-      if (clearBtn) {
-        clearBtn.removeAttribute("disabled");
-        clearBtn.title = "Remove all cookies";
-        clearBtn.textContent = "Clear All Cookies";
-      }
+      protectIconUnlocked.classList.remove("hidden");
+      protectIconLocked.classList.add("hidden");
+      protectBtn.classList.remove("locked");
+      clearBtn.removeAttribute("disabled");
+      clearBtn.title = "Remove all cookies";
+      clearBtn.textContent = "Clear All Cookies";
+      
     }
   }
 
   // 4. Initial Scan & Data Fetching
-  if (scanningView && dashboardView) {
     scanningView.classList.remove("hidden");
     dashboardView.classList.add("hidden");
 
@@ -354,12 +352,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
 
       if (
-        tab?.url &&
+        tab.url &&
         (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
       ) {
         const urlObj = new URL(tab.url);
         currentHostname = urlObj.hostname;
-        if (currentSiteEl) currentSiteEl.textContent = currentHostname;
+        currentSiteEl.textContent = currentHostname;
 
         // Check protection status
         const storage = await chrome.storage.local.get(
@@ -378,9 +376,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           strict: 0 
         };
 
-        if (cookieListContainer) {
             cookieListContainer.textContent = "";
-        }
 
         cookies.forEach((cookie: chrome.cookies.Cookie) => {
           // PASS CURRENT HOSTNAME HERE
@@ -400,7 +396,6 @@ document.addEventListener("DOMContentLoaded", async () => {
             badgeClass = "badge-strict";
 
           // Create List Item
-          if (cookieListContainer) {
             const cookieItem = document.createElement("div");
             cookieItem.className = "cookie-item";
             const cookieHead = document.createElement("div")
@@ -422,19 +417,14 @@ document.addEventListener("DOMContentLoaded", async () => {
             cookieItem.append(cookieDesc);
             cookieHead.append(cookieSpanText);
             cookieHead.append(cookieSpanBadge);
-          }
         });
 
         // Update Counts
-        if (totalCountEl) totalCountEl.textContent = String(cookies.length);
-        if (countFunctionalEl)
-          countFunctionalEl.textContent = String(counts.func);
-        if (countPerformanceEl)
-          countPerformanceEl.textContent = String(counts.perf);
-        if (countTargetingEl)
-          countTargetingEl.textContent = String(counts.target);
-        if (countStrictlyNecessaryEl)
-          countStrictlyNecessaryEl.textContent = String(counts.strict);
+        totalCountEl.textContent = String(cookies.length);
+        countFunctionalEl.textContent = String(counts.func);
+        countPerformanceEl.textContent = String(counts.perf);
+        countTargetingEl.textContent = String(counts.target);
+        countStrictlyNecessaryEl.textContent = String(counts.strict);
 
         // Show dashboard
         scanningView.classList.add("hidden");
@@ -442,24 +432,21 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         // Restricted page handling
         scanningView.classList.add("hidden");
-        if (currentSiteEl) currentSiteEl.textContent = "Restricted Page";
-        if (dashboardView) {
-          dashboardView.classList.remove("hidden");
-          const dashBoardViewDiv = document.createElement("div");
-          dashBoardViewDiv.className = "cannot-scan-cookies";
-          dashBoardViewDiv.textContent = "Cannot scan cookies on this page.";
-          dashboardView.replaceChildren();
-          dashboardView.appendChild(dashBoardViewDiv);
-        }
+        currentSiteEl.textContent = "Restricted Page";
+        dashboardView.classList.remove("hidden");
+        const dashBoardViewDiv = document.createElement("div");
+        dashBoardViewDiv.className = "cannot-scan-cookies";
+        dashBoardViewDiv.textContent = "Cannot scan cookies on this page.";
+        dashboardView.replaceChildren();
+        dashboardView.appendChild(dashBoardViewDiv);
       }
     } catch (e) {
       console.error(e);
       scanningView.classList.add("hidden");
     }
-  }
 
   // 5. Clear Cookies Logic
-  clearBtn?.addEventListener("click", async () => {
+  clearBtn.addEventListener("click", async () => {
     if (isProtected) return;
 
     clearBtn.textContent = "Clearing...";
@@ -476,33 +463,30 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         // Reset UI
-        if (totalCountEl) totalCountEl.textContent = "0";
-        if (countFunctionalEl) countFunctionalEl.textContent = "0";
-        if (countPerformanceEl) countPerformanceEl.textContent = "0";
-        if (countTargetingEl) countTargetingEl.textContent = "0";
-        if (countStrictlyNecessaryEl)
-          countStrictlyNecessaryEl.textContent = "0";
-        if (cookieListContainer) cookieListContainer.replaceChildren();
+        totalCountEl.textContent = "0";
+        countFunctionalEl.textContent = "0";
+        countPerformanceEl.textContent = "0";
+        countTargetingEl.textContent = "0";
+        countStrictlyNecessaryEl.textContent = "0";
+        cookieListContainer.replaceChildren();
 
         // Show toast
-        if (toast) {
           toast.classList.remove("hidden");
           setTimeout(() => {
             toast.classList.add("hidden");
           }, 2000);
-        }
       }
     } catch (e) {
       console.error(e);
     } finally {
       setTimeout(() => {
-        if (clearBtn) clearBtn.textContent = "Clear All Cookies";
+        clearBtn.textContent = "Clear All Cookies";
       }, 500);
     }
   });
 
   // 6. Protect Button Logic
-  protectBtn?.addEventListener("click", async () => {
+  protectBtn.addEventListener("click", async () => {
     isProtected = !isProtected;
     if (currentHostname) {
       if (isProtected) {
