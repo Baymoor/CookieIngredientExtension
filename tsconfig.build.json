@@ -9,7 +9,6 @@
     "moduleDetection": "auto"
   },
   "include": [
-    "src/background/background.ts",
     "src/content/content.ts"
   ]
 }

@@ -1,458 +1,368 @@
 /// <reference types="chrome" />
 import "./popup.css";
-import cookieData from "../cookie_lookup/cookies.json";
+import { CookieCategories } from "../cookie_lookup/cookietypes";
+import { calculateRiskScore } from "../cookie_lookup/riskScore";
+import { getElement } from "./helper";
+import { identifyCookie } from "../cookie_lookup/identifyCookie";
+import {
+  setupThemeToggle,
+  settingsPage,
+  setupTabs,
+  showConfirmModal,
+  hideConfirmModal,
+  setupFlipCards,
+  setupStorageToggles,
+} from "./ui";
 
-// --- Interfaces for the Open Cookie Database ---
-interface ExternalCookie {
-  id: string;
-  category: string;
-  cookie: string; // This matches cookie.name
-  domain: string;
-  description: string;
-  retentionPeriod: string;
-  dataController: string;
-  privacyLink: string;
-  wildcardMatch: string; // "0" for exact, "1" for pattern
+// --- Gauge Rendering ---
+function renderGauge(score: number, color: string, label: string) {
+  const arc = document.getElementById("gauge-arc") as SVGPathElement | null;
+  const scoreText = document.getElementById("gauge-score");
+  const labelText = document.getElementById("gauge-label");
+
+  if (!arc) return;
+
+  // The arc path length for a semicircle with radius 80 is ~251.3
+  const totalLength = arc.getTotalLength();
+  const fillLength = totalLength * (score / 100);
+
+  arc.style.strokeDasharray = `${totalLength}`;
+  arc.style.strokeDashoffset = `${totalLength - fillLength}`;
+  arc.style.stroke = color;
+
+  if (scoreText) scoreText.textContent = String(score);
+  if (labelText) labelText.textContent = label;
 }
 
-interface ExternalCookieDB {
-  [vendorName: string]: ExternalCookie[];
+// --- Storage Rendering ---
+interface StorageItem {
+  key: string;
+  size: number;
 }
 
-// Type assertion for the imported JSON
-const RAW_COOKIE_DB: ExternalCookieDB =
-  cookieData as unknown as ExternalCookieDB;
-
-// --- Optimization: Pre-process DB into a Map ---
-const EXACT_MATCH_MAP = new Map<
-  string,
-  { category: string; vendor: string; description: string; retention: string }
->();
-const PATTERN_MATCH_LIST: {
-  regex: RegExp;
-  category: string;
-  vendor: string;
-  description: string;
-  retention: string;
-}[] = [];
-
-// Helper: Map OpenCookieDB Categories to Our Extension Categories
-function normalizeCategory(dbCategory: string): string {
-  const cat = dbCategory.toLowerCase();
-
-  if (
-    cat === "functional" ||
-    cat === "security" ||
-    cat === "strictly necessary"
-  ) {
-    return "Strictly Necessary";
-  }
-  if (cat === "personalization" || cat === "preferences") {
-    return "Functional";
-  }
-  if (cat === "analytics" || cat === "performance" || cat === "statistics") {
-    return "Performance";
-  }
-  if (cat === "marketing" || cat === "advertising" || cat === "targeting") {
-    return "Targeting";
-  }
-
-  return "Functional"; // Default fallback
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
 }
 
-// Initialize Lookup Tables (Runs once on load)
-(function initializeCookieDatabase() {
-  for (const [vendor, cookies] of Object.entries(RAW_COOKIE_DB)) {
-    for (const cookieDef of cookies) {
-      // Create our normalized entry
-      const entry = {
-        category: normalizeCategory(cookieDef.category),
-        vendor: vendor || cookieDef.dataController || "Unknown",
-        description: cookieDef.description,
-        retention: cookieDef.retentionPeriod,
-      };
+function renderStorageList(
+  localItems: StorageItem[],
+  sessionItems: StorageItem[],
+) {
+  const localContainer = document.getElementById("storage-local-items");
+  const sessionContainer = document.getElementById("storage-session-items");
+  const localCountEl = document.getElementById("local-count");
+  const sessionCountEl = document.getElementById("session-count");
+  const emptyMsg = document.getElementById("storage-empty-msg");
+  const sections = document.querySelectorAll(".storage-section");
 
-      // Handle Pattern vs Exact matches
-      if (cookieDef.wildcardMatch === "1") {
-        try {
-          // Convert wildcard string to Regex (assuming simple string or regex format)
-          PATTERN_MATCH_LIST.push({
-            ...entry,
-            regex: new RegExp(cookieDef.cookie, "i"),
-          });
-        } catch (e) {
-          console.warn("Invalid Regex in DB:", cookieDef.cookie);
-        }
-      } else {
-        // Store exact matches in a Map for O(1) lookup (using lowercase key)
-        EXACT_MATCH_MAP.set(cookieDef.cookie.toLowerCase(), entry);
-      }
+  if (localItems.length === 0 && sessionItems.length === 0) {
+    sections.forEach((s) => (s as HTMLElement).classList.add("hidden"));
+    emptyMsg?.classList.remove("hidden");
+    return;
+  }
+
+  sections.forEach((s) => (s as HTMLElement).classList.remove("hidden"));
+  emptyMsg?.classList.add("hidden");
+
+  // Update counts
+  if (localCountEl) localCountEl.textContent = `${localItems.length} item${localItems.length !== 1 ? "s" : ""}`;
+  if (sessionCountEl) sessionCountEl.textContent = `${sessionItems.length} item${sessionItems.length !== 1 ? "s" : ""}`;
+
+  // Render local items
+  if (localContainer) {
+    localContainer.textContent = "";
+    for (const item of localItems) {
+      localContainer.appendChild(createStorageItemEl(item, "Local"));
     }
   }
-  console.log(
-    `Database loaded: ${EXACT_MATCH_MAP.size} exact matches, ${PATTERN_MATCH_LIST.length} patterns.`
-  );
-})();
 
-// --- Logic ---
-
-function identifyCookie(
-  cookie: chrome.cookies.Cookie,
-  currentHostname: string
-): {
-  category: string;
-  vendor: string;
-  description: string;
-  retention: string;
-} {
-  const cookieNameLower = cookie.name.toLowerCase();
-
-  // 1. FAST LOOKUP: Check the Map (O(1) speed)
-  if (EXACT_MATCH_MAP.has(cookieNameLower)) {
-    return EXACT_MATCH_MAP.get(cookieNameLower)!;
+  // Render session items
+  if (sessionContainer) {
+    sessionContainer.textContent = "";
+    for (const item of sessionItems) {
+      sessionContainer.appendChild(createStorageItemEl(item, "Session"));
+    }
   }
+}
 
-  // 2. PATTERN MATCH: Check the wildcard list
-  const patternMatch = PATTERN_MATCH_LIST.find((def) =>
-    def.regex.test(cookie.name)
-  );
-  if (patternMatch) {
-    return {
-      category: patternMatch.category,
-      vendor: patternMatch.vendor,
-      description: patternMatch.description,
-      retention: patternMatch.retention,
-    };
-  }
+function createStorageItemEl(
+  item: StorageItem,
+  type: "Local" | "Session",
+): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "storage-item";
 
-  // 3. HEURISTIC ANALYSIS (The "Speculation" Engine)
+  const info = document.createElement("div");
+  info.className = "storage-item-info";
 
-  const isSession = cookie.session;
-  const isHttpOnly = cookie.httpOnly;
+  const keyEl = document.createElement("span");
+  keyEl.className = "storage-item-key";
+  keyEl.textContent = item.key;
+  keyEl.title = item.key;
 
-  // Calculate lifespan (in seconds)
-  let lifespan = 0;
-  if (cookie.expirationDate) {
-    lifespan = cookie.expirationDate - Date.now() / 1000;
-  }
+  const sizeEl = document.createElement("span");
+  sizeEl.className = "storage-item-size";
+  sizeEl.textContent = formatSize(item.size);
 
-  const oneDay = 86400;
-  const oneYear = 31536000;
+  info.appendChild(keyEl);
+  info.appendChild(sizeEl);
 
-  // --- LEVEL 1: Security Flags (Strongest Signals) ---
-  if (isHttpOnly) {
-    return {
-      category: "Strictly Necessary",
-      vendor: "Unknown (Backend)",
-      description: "This cookie is flagged as 'HttpOnly', meaning it's used securely by the server (likely for login or security) and can't be touched by trackers.", 
-      retention: isSession ? "Session" : "Persistent",
-    };
-  }
+  const badge = document.createElement("span");
+  badge.className = `storage-badge ${type === "Local" ? "storage-badge-local" : "storage-badge-session"}`;
+  badge.textContent = type;
 
-  // --- LEVEL 2: Contextual Analysis (Third-Party Check) ---
-  const cleanCookieDomain = cookie.domain.startsWith(".") ? cookie.domain.substring(1) : cookie.domain;
-  const cleanCurrentHost = currentHostname.startsWith("www.") ? currentHostname.substring(4) : currentHostname;
-
-  // Simple check: Is the cookie domain completely different from the current site?
-  if (
-    !cleanCurrentHost.includes(cleanCookieDomain) &&
-    !cleanCookieDomain.includes(cleanCurrentHost)
-  ) {
-    return {
-      category: "Targeting",
-      vendor: "Third Party (" + cleanCookieDomain + ")",
-      description: `This cookie comes from a different domain (${cleanCookieDomain}). Third-party cookies are typically used to track you across different websites.`,
-      retention: lifespan > oneYear ? "Long-term" : "Medium-term",
-    };
-  }
-
-  // --- LEVEL 3: Common Naming Patterns (Fallback) ---
-  if (
-    cookieNameLower.includes("sess") ||
-    cookieNameLower.includes("csrf") ||
-    cookieNameLower.includes("xsrf") ||
-    cookieNameLower.includes("token") ||
-    cookieNameLower.includes("auth")
-  ) {
-    return {
-      category: "Strictly Necessary",
-      vendor: "Heuristic Match",
-      description:
-        "The name suggests this is a security token or session ID, essential for keeping you logged in.",
-      retention: isSession ? "Session" : "Persistent",
-    };
-  }
-
-  if (
-    cookieNameLower.startsWith("_g") ||
-    cookieNameLower.includes("pixel") ||
-    cookieNameLower.includes("ads") ||
-    cookieNameLower.includes("tracker")
-  ) {
-    return {
-      category: "Performance",
-      vendor: "Heuristic Match",
-      description:
-        "The name contains common tracking terms. It is likely measuring your interactions with the page.",
-      retention: "Variable",
-    };
-  }
-
-  if (
-    cookieNameLower.includes("pref") ||
-    cookieNameLower.includes("lang") ||
-    cookieNameLower.includes("theme") ||
-    cookieNameLower.includes("mode")
-  ) {
-    return {
-      category: "Functional",
-      vendor: "Heuristic Match",
-      description:
-        "The name implies it's remembering a choice you made, like language or dark mode.",
-      retention: "Persistent",
-    };
-  }
-
-  // --- LEVEL 4: Time-Based Fallback ---
-  if (isSession) {
-    return {
-      category: "Strictly Necessary",
-      vendor: "Unknown",
-      description:
-        "This is a temporary session cookie. It usually holds your 'state' while you browse and is deleted when you close the browser.",
-      retention: "Session",
-    };
-  }
-
-  if (lifespan < oneDay) {
-    return {
-      category: "Performance",
-      vendor: "Unknown",
-      description:
-        "This cookie expires very quickly (under 24h). Short-lived cookies are often used for brief analytics or checking if your browser supports cookies.",
-      retention: "Short-term",
-    };
-  }
-
-  if (lifespan > oneYear) {
-    return {
-      category: "Targeting",
-      vendor: "Unknown",
-      description:
-        "This cookie lasts over a year. Long lifespans are a hallmark of tracking cookies building a long-term profile of you.",
-      retention: "Long-term",
-    };
-  }
-
-  return {
-    category: "Functional",
-    vendor: "Unknown",
-    description:
-      "This persistent cookie doesn't match known tracking patterns. It's likely remembering your preferences or site state.",
-    retention: "Medium-term",
-  };
+  el.appendChild(info);
+  el.appendChild(badge);
+  return el;
 }
 
 // --- UI Logic ---
 document.addEventListener("DOMContentLoaded", async () => {
   // UI Elements
-  const themeBtn = document.getElementById("btn-theme");
-  const sunIcon = themeBtn?.querySelector(".icon-sun");
-  const moonIcon = themeBtn?.querySelector(".icon-moon");
 
-  const settingsBtn = document.getElementById("btn-settings");
-  const backBtn = document.getElementById("btn-back");
-  const settingsView = document.getElementById("view-opts");
+  // Light/Dark theme
+  const themeBtn = getElement<HTMLButtonElement>("btn-theme");
+  const sunIcon = themeBtn.querySelector(".icon-sun");
+  const moonIcon = themeBtn.querySelector(".icon-moon");
 
-  const clearBtn = document.getElementById("btn-clear-all");
-  const toast = document.getElementById("toast");
-  const scanningView = document.getElementById("view-scan");
-  const dashboardView = document.getElementById("view-dash");
-  const currentSiteEl = document.getElementById("site-host");
+  // Settings page
+  const settingsBtn = getElement<HTMLButtonElement>("btn-settings");
+  const backBtn = getElement<HTMLButtonElement>("btn-back");
+  const settingsView = getElement<HTMLElement>("view-opts");
 
-  const totalCountEl = document.getElementById("count-total");
-  const countFunctionalEl = document.getElementById("count-func");
-  const countPerformanceEl = document.getElementById("count-perf");
-  const countTargetingEl = document.getElementById("count-target");
-  const countStrictlyNecessaryEl = document.getElementById("count-strict");
+  // Cookie list container
+  const cookieListContainer = getElement<HTMLElement>("list-items");
 
-  const showIngredientsBtn = document.getElementById("btn-list");
-  const listContainer = document.getElementById("list-wrap");
-  const cookieListContainer = document.getElementById("list-items");
-  const showIngredientsIcon = document.getElementById("icon-list");
+  const clearBtn = getElement<HTMLButtonElement>("btn-clear-all");
+  const toast = getElement<HTMLElement>("toast");
+  const scanningView = getElement<HTMLElement>("view-scan");
+  const dashboardView = getElement<HTMLElement>("view-dash");
+  const currentSiteEl = getElement<HTMLElement>("site-host");
 
-  const protectBtn = document.getElementById("btn-lock");
-  const protectIconUnlocked = document.getElementById("icon-unlock");
-  const protectIconLocked = document.getElementById("icon-lock");
+  const countFunctionalEl = getElement<HTMLElement>("count-func");
+  const countPerformanceEl = getElement<HTMLElement>("count-perf");
+  const countTargetingEl = getElement<HTMLElement>("count-target");
+  const countStrictlyNecessaryEl = getElement<HTMLElement>("count-strict");
 
-  // Flash Card Elements
-  const cards = document.querySelectorAll(".flip-card");
-  cards.forEach((card) => {
-    card.addEventListener("click", () => {
-      card.classList.toggle("flipped");
-    });
-  });
+  const gaugeTotalEl = getElement<HTMLElement>("gauge-total");
+
+  const protectBtn = getElement<HTMLButtonElement>("btn-lock");
+  const protectIconUnlocked = getElement<HTMLElement>("icon-unlock");
+  const protectIconLocked = getElement<HTMLElement>("icon-lock");
+
+  // Storage elements
+  const clearStorageBtn = getElement<HTMLButtonElement>("btn-clear-storage");
+  const modalCancelBtn = getElement<HTMLButtonElement>("modal-cancel");
+  const modalConfirmBtn = getElement<HTMLButtonElement>("modal-confirm");
+  const modalDomainEl = getElement<HTMLElement>("modal-domain");
 
   let isProtected = false;
   let currentHostname = "";
+  let currentTabId: number | undefined;
+  let storageLoaded = false;
 
   // 1. Theme Toggle
-  themeBtn?.addEventListener("click", () => {
-    document.body.classList.toggle("dark");
-    const isDark = document.body.classList.contains("dark");
-    if (isDark) {
-      sunIcon?.classList.add("hidden");
-      moonIcon?.classList.remove("hidden");
-    } else {
-      sunIcon?.classList.remove("hidden");
-      moonIcon?.classList.add("hidden");
-    }
-  });
+  const themeData = await chrome.storage.local.get("darkMode");
+  if (themeData.darkMode) {
+    document.body.classList.add("dark");
+    sunIcon?.classList.add("hidden");
+    moonIcon?.classList.remove("hidden");
+  }
+  setupThemeToggle(themeBtn, sunIcon, moonIcon);
 
   // 2. Settings Navigation
-  settingsBtn?.addEventListener("click", () => {
-    settingsView?.classList.remove("hidden");
-  });
-  backBtn?.addEventListener("click", () => {
-    settingsView?.classList.add("hidden");
-  });
+  settingsPage(settingsBtn, backBtn, settingsView);
 
-  // 3. Ingredients Toggle
-  showIngredientsBtn?.addEventListener("click", () => {
-    const isHidden = listContainer?.classList.contains("hidden");
-    if (isHidden) {
-      listContainer?.classList.remove("hidden");
-      showIngredientsIcon?.classList.add("rotate-180");
-      setTimeout(
-        () => listContainer?.scrollIntoView({ behavior: "smooth" }),
-        100
-      );
-    } else {
-      listContainer?.classList.add("hidden");
-      showIngredientsIcon?.classList.remove("rotate-180");
+  // 3. Flip Cards & Storage Toggles
+  setupFlipCards();
+  setupStorageToggles();
+
+  // 4. Tab Switching
+  setupTabs((tabName) => {
+    if (tabName === "storage" && !storageLoaded && currentTabId) {
+      loadStorageData();
     }
   });
+
+  // Helper: load storage data from content script
+  function loadStorageData() {
+    if (!currentTabId) return;
+    chrome.tabs.sendMessage(
+      currentTabId,
+      { type: "GET_STORAGE_INFO" },
+      (response) => {
+        if (chrome.runtime.lastError || !response) {
+          renderStorageList([], []);
+          return;
+        }
+        renderStorageList(
+          response.localStorage ?? [],
+          response.sessionStorage ?? [],
+        );
+        storageLoaded = true;
+      },
+    );
+  }
 
   // Helper: Update Protect UI
   function updateProtectUI() {
     if (isProtected) {
-      protectIconUnlocked?.classList.add("hidden");
-      protectIconLocked?.classList.remove("hidden");
-      protectBtn?.classList.add("locked");
-      if (clearBtn) {
-        clearBtn.setAttribute("disabled", "true");
-        clearBtn.title = "Site is protected";
-        clearBtn.textContent = "Cookies Protected";
-      }
+      protectIconUnlocked.classList.add("hidden");
+      protectIconLocked.classList.remove("hidden");
+      protectBtn.classList.add("locked");
+      clearBtn.setAttribute("disabled", "true");
+      clearBtn.title = "Site is protected";
+      clearBtn.textContent = "Cookies Protected";
     } else {
-      protectIconUnlocked?.classList.remove("hidden");
-      protectIconLocked?.classList.add("hidden");
-      protectBtn?.classList.remove("locked");
-      if (clearBtn) {
-        clearBtn.removeAttribute("disabled");
-        clearBtn.title = "Remove all cookies";
-        clearBtn.textContent = "Clear All Cookies";
-      }
+      protectIconUnlocked.classList.remove("hidden");
+      protectIconLocked.classList.add("hidden");
+      protectBtn.classList.remove("locked");
+      clearBtn.removeAttribute("disabled");
+      clearBtn.title = "Remove all cookies";
+      clearBtn.textContent = "Clear All Cookies";
     }
   }
 
-  // 4. Initial Scan & Data Fetching
-  if (scanningView && dashboardView) {
-    scanningView.classList.remove("hidden");
-    dashboardView.classList.add("hidden");
+  // 5. Initial Scan & Data Fetching
+  scanningView.classList.remove("hidden");
+  dashboardView.classList.add("hidden");
 
-    try {
-      const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    currentTabId = tab?.id;
+
+    if (
+      tab.url &&
+      (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
+    ) {
+      const urlObj = new URL(tab.url);
+      currentHostname = urlObj.hostname;
+      currentSiteEl.textContent = currentHostname;
+      modalDomainEl.textContent = currentHostname;
+
+      // Check protection status
+      const storage = await chrome.storage.local.get(
+        `protect_${currentHostname}`,
+      );
+      isProtected = !!storage[`protect_${currentHostname}`];
+      updateProtectUI();
+
+      // Fetch cookies
+      const cookies = await chrome.cookies.getAll({ url: tab.url });
+
+      let counts = {
+        func: 0,
+        perf: 0,
+        target: 0,
+        strict: 0,
+      };
+
+      cookieListContainer.textContent = "";
+
+      cookies.forEach((cookie: chrome.cookies.Cookie) => {
+        const info = identifyCookie(cookie, currentHostname);
+
+        if (info.category === CookieCategories.Functional) counts.func++;
+        else if (info.category === CookieCategories.Performance) counts.perf++;
+        else if (info.category === CookieCategories.Targeting) counts.target++;
+        else if (info.category === CookieCategories.Strictly_Necessary)
+          counts.strict++;
+
+        // Determine Badge Class based on category
+        let badgeClass = "badge-unknown";
+        if (info.category === CookieCategories.Functional)
+          badgeClass = "badge-func";
+        else if (info.category === CookieCategories.Performance)
+          badgeClass = "badge-perf";
+        else if (info.category === CookieCategories.Targeting)
+          badgeClass = "badge-target";
+        else if (info.category === CookieCategories.Strictly_Necessary)
+          badgeClass = "badge-strict";
+
+        // Create List Item
+        const cookieItem = document.createElement("div");
+        cookieItem.className = "cookie-item";
+        cookieItem.dataset.category = info.category;
+        const cookieHead = document.createElement("div");
+        cookieHead.className = "cookie-head";
+        const cookieSpanText = document.createElement("span");
+        cookieSpanText.className = "truncate";
+        const cookieSpanBadge = document.createElement("span");
+        cookieSpanBadge.className = `cookie-badge ${badgeClass}`;
+        const cookieDesc = document.createElement("div");
+        cookieDesc.className = "cookie-desc";
+
+        cookieSpanText.textContent = cookie.name;
+        cookieSpanText.title = cookie.name;
+        cookieSpanBadge.textContent = info.category;
+        cookieDesc.textContent = info.description;
+
+        cookieListContainer.appendChild(cookieItem);
+        cookieItem.append(cookieHead);
+        cookieItem.append(cookieDesc);
+        cookieHead.append(cookieSpanText);
+        cookieHead.append(cookieSpanBadge);
       });
 
-      if (
-        tab?.url &&
-        (tab.url.startsWith("http://") || tab.url.startsWith("https://"))
-      ) {
-        const urlObj = new URL(tab.url);
-        currentHostname = urlObj.hostname;
-        if (currentSiteEl) currentSiteEl.textContent = currentHostname;
+      // Update Counts
+      countFunctionalEl.textContent = String(counts.func);
+      countPerformanceEl.textContent = String(counts.perf);
+      countTargetingEl.textContent = String(counts.target);
+      countStrictlyNecessaryEl.textContent = String(counts.strict);
 
-        // Check protection status
-        const storage = await chrome.storage.local.get(
-          `protect_${currentHostname}`
-        );
-        isProtected = !!storage[`protect_${currentHostname}`];
-        updateProtectUI();
+      // Risk Score & Gauge
+      const risk = calculateRiskScore(counts);
+      renderGauge(risk.score, risk.color, risk.label);
+      gaugeTotalEl.textContent = `${cookies.length} cookie${cookies.length !== 1 ? "s" : ""}`;
 
-        // Fetch cookies
-        const cookies = await chrome.cookies.getAll({ url: tab.url });
+      // Filter btns
+      const allFilterBtns = document.querySelectorAll(".filter-btn");
+      allFilterBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const filter = (btn as HTMLElement).dataset.filter;
 
-        let counts = { func: 0, perf: 0, target: 0, strict: 0 };
+          // Update active state
+          allFilterBtns.forEach((b) => b.classList.remove("filter-active"));
+          btn.classList.add("filter-active");
 
-        if (cookieListContainer) cookieListContainer.innerHTML = "";
-
-        cookies.forEach((cookie: chrome.cookies.Cookie) => {
-          // PASS CURRENT HOSTNAME HERE
-          const info = identifyCookie(cookie, currentHostname);
-
-          if (info.category === "Functional") counts.func++;
-          else if (info.category === "Performance") counts.perf++;
-          else if (info.category === "Targeting") counts.target++;
-          else if (info.category === "Strictly Necessary") counts.strict++;
-
-          // Determine Badge Class based on category
-          let badgeClass = "badge-unknown";
-          if (info.category === "Functional") badgeClass = "badge-func";
-          else if (info.category === "Performance") badgeClass = "badge-perf";
-          else if (info.category === "Targeting") badgeClass = "badge-target";
-          else if (info.category === "Strictly Necessary")
-            badgeClass = "badge-strict";
-
-          // Create List Item
-          if (cookieListContainer) {
-            const item = document.createElement("div");
-            item.className = "cookie-item";
-
-            item.innerHTML = `
-                <div class="cookie-head">
-                    <span class="truncate" style="max-width: 60%;" title="${cookie.name}">${cookie.name}</span>
-                    <span class="cookie-badge ${badgeClass}">${info.category}</span>
-                </div>
-                <div class="cookie-desc">${info.description}</div>
-            `;
-            cookieListContainer.appendChild(item);
-          }
+          const items = cookieListContainer.querySelectorAll(".cookie-item");
+          items.forEach((item) => {
+            const itemCategory = (item as HTMLElement).dataset.category;
+            if (filter === "all" || itemCategory === filter) {
+              (item as HTMLElement).classList.remove("hidden");
+            } else {
+              (item as HTMLElement).classList.add("hidden");
+            }
+          });
         });
+      });
 
-        // Update Counts
-        if (totalCountEl) totalCountEl.textContent = String(cookies.length);
-        if (countFunctionalEl)
-          countFunctionalEl.textContent = String(counts.func);
-        if (countPerformanceEl)
-          countPerformanceEl.textContent = String(counts.perf);
-        if (countTargetingEl)
-          countTargetingEl.textContent = String(counts.target);
-        if (countStrictlyNecessaryEl)
-          countStrictlyNecessaryEl.textContent = String(counts.strict);
-
-        // Show dashboard
-        scanningView.classList.add("hidden");
-        dashboardView.classList.remove("hidden");
-      } else {
-        // Restricted page handling
-        scanningView.classList.add("hidden");
-        if (currentSiteEl) currentSiteEl.textContent = "Restricted Page";
-        if (dashboardView) {
-          dashboardView.classList.remove("hidden");
-          dashboardView.innerHTML = `<div style="text-align:center; padding: 40px; color: var(--text-muted);">Cannot scan cookies on this page.</div>`;
-        }
-      }
-    } catch (e) {
-      console.error(e);
+      // Show dashboard
       scanningView.classList.add("hidden");
+      dashboardView.classList.remove("hidden");
+    } else {
+      // Restricted page handling
+      scanningView.classList.add("hidden");
+      currentSiteEl.textContent = "Restricted Page";
+      dashboardView.classList.remove("hidden");
+      const dashBoardViewDiv = document.createElement("div");
+      dashBoardViewDiv.className = "cannot-scan-cookies";
+      dashBoardViewDiv.textContent = "Cannot scan cookies on this page.";
+      dashboardView.replaceChildren();
+      dashboardView.appendChild(dashBoardViewDiv);
     }
+  } catch (e) {
+    console.error(e);
+    scanningView.classList.add("hidden");
   }
 
-  // 5. Clear Cookies Logic
-  clearBtn?.addEventListener("click", async () => {
+  // 6. Clear Cookies Logic
+  clearBtn.addEventListener("click", async () => {
     if (isProtected) return;
 
     clearBtn.textContent = "Clearing...";
@@ -469,33 +379,35 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         // Reset UI
-        if (totalCountEl) totalCountEl.textContent = "0";
-        if (countFunctionalEl) countFunctionalEl.textContent = "0";
-        if (countPerformanceEl) countPerformanceEl.textContent = "0";
-        if (countTargetingEl) countTargetingEl.textContent = "0";
-        if (countStrictlyNecessaryEl)
-          countStrictlyNecessaryEl.textContent = "0";
-        if (cookieListContainer) cookieListContainer.innerHTML = "";
+        countFunctionalEl.textContent = "0";
+        countPerformanceEl.textContent = "0";
+        countTargetingEl.textContent = "0";
+        countStrictlyNecessaryEl.textContent = "0";
+        cookieListContainer.replaceChildren();
+
+        // Reset gauge
+        const zeroCounts = { func: 0, perf: 0, target: 0, strict: 0 };
+        const risk = calculateRiskScore(zeroCounts);
+        renderGauge(risk.score, risk.color, risk.label);
+        gaugeTotalEl.textContent = "0 cookies";
 
         // Show toast
-        if (toast) {
-          toast.classList.remove("hidden");
-          setTimeout(() => {
-            toast.classList.add("hidden");
-          }, 2000);
-        }
+        toast.classList.remove("hidden");
+        setTimeout(() => {
+          toast.classList.add("hidden");
+        }, 2000);
       }
     } catch (e) {
       console.error(e);
     } finally {
       setTimeout(() => {
-        if (clearBtn) clearBtn.textContent = "Clear All Cookies";
+        clearBtn.textContent = "Clear All Cookies";
       }, 500);
     }
   });
 
-  // 6. Protect Button Logic
-  protectBtn?.addEventListener("click", async () => {
+  // 7. Protect Button Logic
+  protectBtn.addEventListener("click", async () => {
     isProtected = !isProtected;
     if (currentHostname) {
       if (isProtected) {
@@ -507,5 +419,42 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
     updateProtectUI();
+  });
+
+  // 8. Clear Storage Modal Logic
+  clearStorageBtn.addEventListener("click", () => {
+    showConfirmModal();
+  });
+
+  modalCancelBtn.addEventListener("click", () => {
+    hideConfirmModal();
+  });
+
+  modalConfirmBtn.addEventListener("click", () => {
+    if (!currentTabId) return;
+    hideConfirmModal();
+    clearStorageBtn.textContent = "Clearing...";
+
+    chrome.tabs.sendMessage(
+      currentTabId,
+      { type: "CLEAR_STORAGE", target: "all" },
+      (response) => {
+        if (chrome.runtime.lastError || !response?.success) {
+          clearStorageBtn.textContent = "Clear All Storage";
+          return;
+        }
+
+        // Refresh storage list
+        storageLoaded = false;
+        loadStorageData();
+
+        toast.classList.remove("hidden");
+        setTimeout(() => toast.classList.add("hidden"), 2000);
+
+        setTimeout(() => {
+          clearStorageBtn.textContent = "Clear All Storage";
+        }, 500);
+      },
+    );
   });
 });
