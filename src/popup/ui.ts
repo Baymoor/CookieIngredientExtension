@@ -1,5 +1,7 @@
+///<reference types="chrome" />
+
 // 1. Theme Toggle
-export function setupThemeToggle(
+export function setupThemeToggle(  
   themeBtn: HTMLButtonElement,
   sunIcon: Element | null,
   moonIcon: Element | null,
@@ -8,9 +10,11 @@ export function setupThemeToggle(
     document.body.classList.toggle("dark");
     const isDark = document.body.classList.contains("dark");
     if (isDark) {
+      chrome.storage.local.set({ darkMode: true });
       sunIcon?.classList.add("hidden");
       moonIcon?.classList.remove("hidden");
     } else {
+      chrome.storage.local.set({ darkMode: false });
       sunIcon?.classList.remove("hidden");
       moonIcon?.classList.add("hidden");
     }

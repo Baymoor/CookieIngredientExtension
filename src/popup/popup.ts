@@ -45,6 +45,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   let currentHostname = "";
 
   // 1. Theme Toggle
+  const themeData = await chrome.storage.local.get("darkMode");
+  if(themeData.darkMode) {
+  document.body.classList.add("dark");
+  sunIcon?.classList.add("hidden");
+  moonIcon?.classList.remove("hidden");
+  }
   setupThemeToggle(themeBtn, sunIcon, moonIcon);
 
   // 2. Settings Navigation
