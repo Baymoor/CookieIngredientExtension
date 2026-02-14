@@ -3,7 +3,116 @@ import { EXACT_MATCH_MAP, PATTERN_MATCH_LIST } from "./cookieDatabase";
 import { CookieCategories } from "./cookietypes";
 import type { CookieIdentification } from "./cookietypes";
 
-// --- Logic ---
+// --- Constants ---
+
+const ONE_DAY = 86400;
+const ONE_YEAR = 31536000;
+
+const KNOWN_AD_DOMAINS = new Set([
+  "doubleclick.net",
+  "criteo.com",
+  "adnxs.com",
+  "adsrvr.org",
+  "casalemedia.com",
+  "pubmatic.com",
+  "rubiconproject.com",
+  "openx.net",
+  "taboola.com",
+  "outbrain.com",
+  "tapad.com",
+  "bidswitch.net",
+  "demdex.net",
+  "bluekai.com",
+  "quantserve.com",
+  "scorecardresearch.com",
+]);
+
+const TRACKER_NAME_PREFIXES = [
+  "_fbp", "_fbc", "_gcl_", "_uet", "_tt_", "_pin_",
+  "IDE", "DSID", "MUID", "NID", "_scid", "_ttp",
+];
+
+const ANALYTICS_NAME_PREFIXES = [
+  "_ga", "_gid", "_gat", "_pk_", "_hj", "__utm",
+];
+
+const TARGETING_NAME_RE = /pixel|\bads?\b|tracker|retarget|campaign/i;
+const SECURITY_NAME_RE = /^(__Host-|__Secure-)|sess|csrf|xsrf|token|auth/i;
+const PREFERENCE_NAME_RE = /pref|lang|theme|mode|locale|consent/i;
+
+// --- Helpers ---
+
+function calculateEntropy(value: string): number {
+  if (value.length === 0) return 0;
+  const freq = new Map<string, number>();
+  for (const ch of value) {
+    freq.set(ch, (freq.get(ch) ?? 0) + 1);
+  }
+  let entropy = 0;
+  const len = value.length;
+  for (const count of freq.values()) {
+    const p = count / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+function isThirdParty(cookieDomain: string, currentHostname: string): boolean {
+  const cleanCookie = cookieDomain.startsWith(".")
+    ? cookieDomain.substring(1)
+    : cookieDomain;
+  const cleanHost = currentHostname.startsWith("www.")
+    ? currentHostname.substring(4)
+    : currentHostname;
+  return (
+    !cleanHost.endsWith(cleanCookie) && !cleanCookie.endsWith(cleanHost)
+  );
+}
+
+function isKnownAdDomain(cookieDomain: string): boolean {
+  const clean = cookieDomain.startsWith(".")
+    ? cookieDomain.substring(1)
+    : cookieDomain;
+  for (const ad of KNOWN_AD_DOMAINS) {
+    if (clean === ad || clean.endsWith("." + ad)) return true;
+  }
+  return false;
+}
+
+function determineVendor(
+  cookie: chrome.cookies.Cookie,
+  currentHostname: string,
+  signals: string[],
+): string {
+  const cleanDomain = cookie.domain.startsWith(".")
+    ? cookie.domain.substring(1)
+    : cookie.domain;
+
+  if (isKnownAdDomain(cookie.domain)) {
+    return "Ad Network (" + cleanDomain + ")";
+  }
+  if (isThirdParty(cookie.domain, currentHostname)) {
+    return "Third Party (" + cleanDomain + ")";
+  }
+  if (signals.length > 0) {
+    return "Heuristic Match";
+  }
+  return "Unknown";
+}
+
+function buildDescription(signals: string[], category: string): string {
+  if (signals.length === 0) {
+    if (category === CookieCategories.Functional) {
+      return "This cookie doesn't match known tracking patterns. It's likely remembering your preferences or site state.";
+    }
+    return "This cookie could not be identified from known databases.";
+  }
+  return "This cookie " + signals.join(", and ") + ".";
+}
+
+type CategoryKey = keyof typeof CookieCategories;
+
+// --- Main Logic ---
 
 export function identifyCookie(
   cookie: chrome.cookies.Cookie,
@@ -29,135 +138,142 @@ export function identifyCookie(
     };
   }
 
-  // 3. HEURISTIC ANALYSIS (The "Speculation" Engine)
+  // 3. SIGNAL-BASED SCORING ENGINE
+  const scores: Record<CategoryKey, number> = {
+    Strictly_Necessary: 0,
+    Functional: 0,
+    Performance: 0,
+    Targeting: 0,
+  };
+  const signals: string[] = [];
 
-  const isSession = cookie.session;
-  const isHttpOnly = cookie.httpOnly;
-
-  // Calculate lifespan (in seconds)
+  // Calculate lifespan
   let lifespan = 0;
   if (cookie.expirationDate) {
     lifespan = cookie.expirationDate - Date.now() / 1000;
   }
 
-  const oneDay = 86400;
-  const oneYear = 31536000;
-
-  // --- LEVEL 1: Security Flags (Strongest Signals) ---
-  if (isHttpOnly) {
-    return {
-      category: CookieCategories.Strictly_Necessary,
-      vendor: "Unknown (Backend)",
-      description:
-        "This cookie is flagged as 'HttpOnly', meaning it's used securely by the server (likely for login or security) and can't be touched by trackers.",
-      retention: isSession ? "Session" : "Persistent",
-    };
+  // --- Domain signals ---
+  if (isThirdParty(cookie.domain, currentHostname)) {
+    scores.Targeting += 40;
+    const cleanDomain = cookie.domain.startsWith(".")
+      ? cookie.domain.substring(1)
+      : cookie.domain;
+    signals.push("comes from a different domain (" + cleanDomain + ")");
   }
 
-  // --- LEVEL 2: Contextual Analysis (Third-Party Check) ---
-  const cleanCookieDomain = cookie.domain.startsWith(".")
-    ? cookie.domain.substring(1)
-    : cookie.domain;
-  const cleanCurrentHost = currentHostname.startsWith("www.")
-    ? currentHostname.substring(4)
-    : currentHostname;
-
-  // Simple check: Is the cookie domain completely different from the current site?
-  if (
-    !cleanCurrentHost.includes(cleanCookieDomain) &&
-    !cleanCookieDomain.includes(cleanCurrentHost)
-  ) {
-    return {
-      category: CookieCategories.Targeting,
-      vendor: "Third Party (" + cleanCookieDomain + ")",
-      description: `This cookie comes from a different domain (${cleanCookieDomain}). Third-party cookies are typically used to track you across different websites.`,
-      retention: lifespan > oneYear ? "Long-term" : "Medium-term",
-    };
+  if (isKnownAdDomain(cookie.domain)) {
+    scores.Targeting += 30;
+    const cleanDomain = cookie.domain.startsWith(".")
+      ? cookie.domain.substring(1)
+      : cookie.domain;
+    signals.push("comes from the ad network " + cleanDomain);
   }
 
-  // --- LEVEL 3: Common Naming Patterns (Fallback) ---
-  if (
-    cookieNameLower.includes("sess") ||
-    cookieNameLower.includes("csrf") ||
-    cookieNameLower.includes("xsrf") ||
-    cookieNameLower.includes("token") ||
-    cookieNameLower.includes("auth")
-  ) {
-    return {
-      category: CookieCategories.Strictly_Necessary,
-      vendor: "Heuristic Match",
-      description:
-        "The name suggests this is a security token or session ID, essential for keeping you logged in.",
-      retention: isSession ? "Session" : "Persistent",
-    };
+  // --- SameSite signals ---
+  if (cookie.sameSite === "no_restriction") {
+    scores.Targeting += 25;
+    signals.push("allows cross-site access (SameSite=None)");
+  } else if (cookie.sameSite === "strict") {
+    scores.Strictly_Necessary += 10;
   }
 
-  if (
-    cookieNameLower.startsWith("_g") ||
-    cookieNameLower.includes("pixel") ||
-    cookieNameLower.includes("ads") ||
-    cookieNameLower.includes("tracker")
-  ) {
-    return {
-      category: CookieCategories.Performance,
-      vendor: "Heuristic Match",
-      description:
-        "The name contains common tracking terms. It is likely measuring your interactions with the page.",
-      retention: "Variable",
-    };
+  // --- Security flag signals ---
+  if (cookie.httpOnly && cookie.secure) {
+    scores.Strictly_Necessary += 20;
+    signals.push("uses server-side security flags (HttpOnly+Secure)");
+  } else if (cookie.httpOnly) {
+    scores.Strictly_Necessary += 10;
+    signals.push("is managed by the server (HttpOnly)");
   }
 
-  if (
-    cookieNameLower.includes("pref") ||
-    cookieNameLower.includes("lang") ||
-    cookieNameLower.includes("theme") ||
-    cookieNameLower.includes("mode")
-  ) {
-    return {
-      category: CookieCategories.Functional,
-      vendor: "Heuristic Match",
-      description:
-        "The name implies it's remembering a choice you made, like language or dark mode.",
-      retention: "Persistent",
-    };
+  if (cookie.hostOnly) {
+    scores.Strictly_Necessary += 5;
   }
 
-  // --- LEVEL 4: Time-Based Fallback ---
-  if (isSession) {
-    return {
-      category: CookieCategories.Strictly_Necessary,
-      vendor: "Unknown",
-      description:
-        "This is a temporary session cookie. It usually holds your 'state' while you browse and is deleted when you close the browser.",
-      retention: "Session",
-    };
+  // --- Name-based signals: tracker prefixes ---
+  if (TRACKER_NAME_PREFIXES.some((p) => cookieNameLower.startsWith(p.toLowerCase()))) {
+    scores.Targeting += 25;
+    signals.push("has a known tracker name prefix");
   }
 
-  if (lifespan < oneDay) {
-    return {
-      category: CookieCategories.Performance,
-      vendor: "Unknown",
-      description:
-        "This cookie expires very quickly (under 24h). Short-lived cookies are often used for brief analytics or checking if your browser supports cookies.",
-      retention: "Short-term",
-    };
+  // --- Name-based signals: analytics prefixes ---
+  if (ANALYTICS_NAME_PREFIXES.some((p) => cookieNameLower.startsWith(p.toLowerCase()))) {
+    scores.Performance += 20;
+    signals.push("has a known analytics name prefix");
   }
 
-  if (lifespan > oneYear) {
-    return {
-      category: CookieCategories.Targeting,
-      vendor: "Unknown",
-      description:
-        "This cookie lasts over a year. Long lifespans are a hallmark of tracking cookies building a long-term profile of you.",
-      retention: "Long-term",
-    };
+  // --- Name-based signals: keyword patterns ---
+  if (TARGETING_NAME_RE.test(cookie.name)) {
+    scores.Targeting += 15;
+    signals.push("shows tracking signals in its name");
   }
 
-  return {
-    category: CookieCategories.Functional,
-    vendor: "Unknown",
-    description:
-      "This persistent cookie doesn't match known tracking patterns. It's likely remembering your preferences or site state.",
-    retention: "Medium-term",
-  };
+  if (SECURITY_NAME_RE.test(cookie.name)) {
+    scores.Strictly_Necessary += 15;
+    signals.push("has a security-related name pattern");
+  }
+
+  if (PREFERENCE_NAME_RE.test(cookie.name)) {
+    scores.Functional += 15;
+    signals.push("has a preference-related name pattern");
+  }
+
+  // --- Value entropy analysis ---
+  if (cookie.value) {
+    const entropy = calculateEntropy(cookie.value);
+    if (entropy > 3.5 && cookie.value.length > 20) {
+      scores.Targeting += 10;
+      signals.push("has a high-entropy value (likely a tracking ID)");
+    } else if (entropy <= 3.5 && cookie.value.length <= 20) {
+      scores.Functional += 5;
+    }
+  }
+
+  // --- Lifespan signals ---
+  if (cookie.session) {
+    scores.Strictly_Necessary += 5;
+  }
+
+  if (lifespan > ONE_YEAR) {
+    scores.Targeting += 10;
+    signals.push("persists for over a year");
+  } else if (lifespan > 0 && lifespan < ONE_DAY) {
+    scores.Performance += 5;
+  }
+
+  // --- Determine winner ---
+  // Tie-break priority: Targeting > Performance > Functional > Strictly Necessary
+  const priority: CategoryKey[] = [
+    "Targeting",
+    "Performance",
+    "Functional",
+    "Strictly_Necessary",
+  ];
+
+  let winnerKey: CategoryKey = "Functional"; // default fallback
+  let winnerScore = -1;
+  for (const key of priority) {
+    if (scores[key] > winnerScore) {
+      winnerScore = scores[key];
+      winnerKey = key;
+    }
+  }
+
+  const category = CookieCategories[winnerKey];
+  const vendor = determineVendor(cookie, currentHostname, signals);
+  const description = buildDescription(signals, category);
+
+  let retention: string;
+  if (cookie.session) {
+    retention = "Session";
+  } else if (lifespan > ONE_YEAR) {
+    retention = "Long-term";
+  } else if (lifespan < ONE_DAY) {
+    retention = "Short-term";
+  } else {
+    retention = "Medium-term";
+  }
+
+  return { category, vendor, description, retention };
 }
